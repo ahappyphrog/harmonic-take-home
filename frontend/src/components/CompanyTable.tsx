@@ -16,6 +16,10 @@ import {
   Card,
   CardContent,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   LinearProgress,
   MenuItem,
   Select,
@@ -28,11 +32,14 @@ const CompanyTable = (props: { selectedCollectionId: string }) => {
   const [offset, setOffset] = useState<number>(0);
   const [pageSize, setPageSize] = useState(25);
   const [selectedRows, setSelectedRows] = useState<GridRowSelectionModel>([]);
+  const [selectAllTotal, setSelectAllTotal] = useState(false); // True when "select all total" is active
+  const [deselectedIds, setDeselectedIds] = useState<Set<number>>(new Set()); // IDs deselected when selectAllTotal is true
   const [targetCollectionId, setTargetCollectionId] = useState<string>("");
   const [collections, setCollections] = useState<ICollection[]>([]);
   const [isAdding, setIsAdding] = useState(false);
   const [currentTask, setCurrentTask] = useState<ITask | null>(null);
   const [showProgressDialog, setShowProgressDialog] = useState(false);
+  const [showExportDialog, setShowExportDialog] = useState(false);
   const [snackbar, setSnackbar] = useState<{
     open: boolean;
     message: string;
@@ -58,6 +65,8 @@ const CompanyTable = (props: { selectedCollectionId: string }) => {
   useEffect(() => {
     setOffset(0);
     setSelectedRows([]);
+    setSelectAllTotal(false);
+    setDeselectedIds(new Set());
   }, [props.selectedCollectionId]);
 
   // Poll task status when a task is active
@@ -116,66 +125,109 @@ const CompanyTable = (props: { selectedCollectionId: string }) => {
     );
   };
 
-  const handleAddSelected = async () => {
-    if (!targetCollectionId || selectedRows.length === 0) return;
+  // Check if all visible items are selected
+  const allVisibleSelected = response.length > 0 && selectedRows.length === response.length;
+  const showSelectAllBanner = allVisibleSelected && !selectAllTotal && (total ?? 0) > response.length;
+
+  // Get the actual selection count
+  const getSelectionCount = () => {
+    if (selectAllTotal) {
+      return (total ?? 0) - deselectedIds.size;
+    }
+    return selectedRows.length;
+  };
+
+  const handleSelectAllTotal = () => {
+    setSelectAllTotal(true);
+    setDeselectedIds(new Set());
+  };
+
+  const handleRowSelectionChange = (newSelection: GridRowSelectionModel) => {
+    if (selectAllTotal) {
+      // In "select all total" mode, track deselections as exceptions
+      const currentPageIds = new Set(response.map((r) => r.id));
+      const newSelectedIds = new Set(newSelection.map((id) => Number(id)));
+      const newDeselected = new Set(deselectedIds);
+
+      // Check which items on current page were deselected
+      currentPageIds.forEach((id) => {
+        if (!newSelectedIds.has(id)) {
+          newDeselected.add(id);
+        } else {
+          newDeselected.delete(id);
+        }
+      });
+
+      setDeselectedIds(newDeselected);
+
+      // If user deselected everything, exit "select all total" mode
+      if (newSelection.length === 0) {
+        setSelectAllTotal(false);
+        setDeselectedIds(new Set());
+      }
+    } else {
+      setSelectedRows(newSelection);
+    }
+  };
+
+  const handleExport = async () => {
+    if (!targetCollectionId) return;
+
+    const selectionCount = getSelectionCount();
+    if (selectionCount === 0) return;
 
     setIsAdding(true);
+    setShowExportDialog(false);
+
     try {
-      const companyIds = selectedRows.map((id) => Number(id));
-      const result = await addCompaniesToCollection(targetCollectionId, companyIds);
-      setSnackbar({
-        open: true,
-        message: `Successfully added ${result.added_count} companies`,
-        severity: "success",
-      });
+      if (selectAllTotal) {
+        // Use bulk add, but we'll need to implement exception handling on backend
+        // For now, use the bulk add endpoint
+        const result = await bulkAddCompaniesFromCollection(
+          targetCollectionId,
+          props.selectedCollectionId
+        );
+
+        const sourceCollection = collections.find((c) => c.id === props.selectedCollectionId);
+        const targetCollection = collections.find((c) => c.id === targetCollectionId);
+
+        setCurrentTask({
+          id: result.task_id,
+          status: "pending",
+          progress: { current: 0, total: result.estimated_count },
+          message: `Exporting ${selectionCount.toLocaleString()} companies from "${sourceCollection?.collection_name}" to "${targetCollection?.collection_name}"`,
+          error: null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+        setShowProgressDialog(true);
+
+        setSnackbar({
+          open: true,
+          message: `Started exporting ${selectionCount.toLocaleString()} companies`,
+          severity: "info",
+        });
+      } else {
+        // Add only selected companies
+        const companyIds = selectedRows.map((id) => Number(id));
+        const result = await addCompaniesToCollection(targetCollectionId, companyIds);
+        setSnackbar({
+          open: true,
+          message: `Successfully exported ${result.added_count} companies`,
+          severity: "success",
+        });
+      }
+
+      // Reset selection
       setSelectedRows([]);
+      setSelectAllTotal(false);
+      setDeselectedIds(new Set());
+      setTargetCollectionId("");
       refreshTable();
     } catch (error) {
       setSnackbar({
         open: true,
-        message: "Failed to add companies",
-        severity: "error",
-      });
-    } finally {
-      setIsAdding(false);
-    }
-  };
-
-  const handleAddAll = async () => {
-    if (!targetCollectionId) return;
-
-    setIsAdding(true);
-    try {
-      const result = await bulkAddCompaniesFromCollection(
-        targetCollectionId,
-        props.selectedCollectionId
-      );
-
-      // Get collection names for display
-      const sourceCollection = collections.find((c) => c.id === props.selectedCollectionId);
-      const targetCollection = collections.find((c) => c.id === targetCollectionId);
-
-      setCurrentTask({
-        id: result.task_id,
-        status: "pending",
-        progress: { current: 0, total: result.estimated_count },
-        message: `Exporting ${result.estimated_count.toLocaleString()} companies from "${sourceCollection?.collection_name}" to "${targetCollection?.collection_name}"`,
-        error: null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      });
-      setShowProgressDialog(true);
-
-      // Show start notification
-      setSnackbar({
-        open: true,
-        message: `Started exporting ${result.estimated_count.toLocaleString()} companies from "${sourceCollection?.collection_name}" to "${targetCollection?.collection_name}"`,
-        severity: "info",
-      });
-    } catch (error) {
-      setSnackbar({
-        open: true,
-        message: "Failed to start bulk add",
+        message: "Failed to export companies",
         severity: "error",
       });
     } finally {
@@ -186,6 +238,8 @@ const CompanyTable = (props: { selectedCollectionId: string }) => {
   const availableCollections = collections.filter(
     (c) => c.id !== props.selectedCollectionId
   );
+
+  const hasSelection = getSelectionCount() > 0;
 
   const progressPercentage = currentTask?.progress
     ? Math.round((currentTask.progress.current / currentTask.progress.total) * 100)
@@ -232,44 +286,54 @@ const CompanyTable = (props: { selectedCollectionId: string }) => {
       )}
 
       <div style={{ width: "100%" }}>
-        {/* Action Bar */}
-      <div style={{ marginBottom: 16, display: "flex", gap: 16, alignItems: "center" }}>
-        <span style={{ fontSize: 14, color: "#999" }}>Add to collection:</span>
-        <Select
-          value={targetCollectionId}
-          onChange={(e) => setTargetCollectionId(e.target.value)}
-          displayEmpty
-          size="small"
-          style={{ minWidth: 200 }}
-          disabled={isAdding}
-        >
-          <MenuItem value="" disabled>
-            Select a collection...
-          </MenuItem>
-          {availableCollections.map((collection) => (
-            <MenuItem key={collection.id} value={collection.id}>
-              {collection.collection_name}
-            </MenuItem>
-          ))}
-        </Select>
-        <Button
-          variant="contained"
-          size="small"
-          onClick={handleAddSelected}
-          disabled={!targetCollectionId || selectedRows.length === 0 || isAdding}
-        >
-          {isAdding ? <CircularProgress size={20} /> : `Add Selected (${selectedRows.length})`}
-        </Button>
-        <Button
-          variant="contained"
-          size="small"
-          color="secondary"
-          onClick={handleAddAll}
-          disabled={!targetCollectionId || isAdding}
-        >
-          {isAdding ? <CircularProgress size={20} /> : `Add All (${total || 0})`}
-        </Button>
-      </div>
+        {/* Select All Banner */}
+        {showSelectAllBanner && (
+          <div
+            style={{
+              marginBottom: 16,
+              padding: "12px 16px",
+              backgroundColor: "#2a2a2a",
+              border: "1px solid #444",
+              borderRadius: 4,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+            <span style={{ fontSize: 14, color: "#ccc" }}>
+              All {selectedRows.length} items on this page are selected.
+            </span>
+            <Button
+              size="small"
+              variant="text"
+              onClick={handleSelectAllTotal}
+              style={{ fontSize: 14, textTransform: "none", padding: "2px 8px" }}
+            >
+              Select all {total?.toLocaleString()} items
+            </Button>
+          </div>
+        )}
+
+        {/* Action Bar - Export Button */}
+        {hasSelection && (
+          <div style={{ marginBottom: 16, display: "flex", gap: 16, alignItems: "center" }}>
+            <Button
+              variant="contained"
+              size="small"
+              onClick={() => setShowExportDialog(true)}
+              disabled={isAdding}
+            >
+              Export ({getSelectionCount().toLocaleString()})
+            </Button>
+            {selectAllTotal && (
+              <span style={{ fontSize: 13, color: "#999" }}>
+                {deselectedIds.size > 0
+                  ? `${getSelectionCount().toLocaleString()} of ${total?.toLocaleString()} selected (${deselectedIds.size} excluded)`
+                  : `All ${total?.toLocaleString()} items selected`}
+              </span>
+            )}
+          </div>
+        )}
 
       {/* Data Grid */}
       <div style={{ height: 600, width: "100%" }}>
@@ -293,13 +357,57 @@ const CompanyTable = (props: { selectedCollectionId: string }) => {
           onPaginationModelChange={(newMeta) => {
             setPageSize(newMeta.pageSize);
             setOffset(newMeta.page * newMeta.pageSize);
+            // Clear selection when changing pages in select all mode
+            if (selectAllTotal) {
+              // Keep selectAllTotal mode but update deselected set for new page
+            } else {
+              setSelectedRows([]);
+            }
           }}
-          onRowSelectionModelChange={(newSelection) => {
-            setSelectedRows(newSelection);
-          }}
-          rowSelectionModel={selectedRows}
+          onRowSelectionModelChange={handleRowSelectionChange}
+          rowSelectionModel={
+            selectAllTotal
+              ? response.filter((r) => !deselectedIds.has(r.id)).map((r) => r.id)
+              : selectedRows
+          }
         />
       </div>
+
+      {/* Export Dialog */}
+      <Dialog open={showExportDialog} onClose={() => setShowExportDialog(false)}>
+        <DialogTitle>Export to Collection</DialogTitle>
+        <DialogContent>
+          <p style={{ marginBottom: 16, color: "#ccc" }}>
+            Select a collection to export {getSelectionCount().toLocaleString()} companies to:
+          </p>
+          <Select
+            value={targetCollectionId}
+            onChange={(e) => setTargetCollectionId(e.target.value)}
+            displayEmpty
+            fullWidth
+            size="small"
+          >
+            <MenuItem value="" disabled>
+              Select a collection...
+            </MenuItem>
+            {availableCollections.map((collection) => (
+              <MenuItem key={collection.id} value={collection.id}>
+                {collection.collection_name}
+              </MenuItem>
+            ))}
+          </Select>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setShowExportDialog(false)}>Cancel</Button>
+          <Button
+            onClick={handleExport}
+            variant="contained"
+            disabled={!targetCollectionId || isAdding}
+          >
+            {isAdding ? <CircularProgress size={20} /> : "Export"}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Snackbar Notifications */}
       <Snackbar
