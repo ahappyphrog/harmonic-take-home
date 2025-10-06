@@ -58,3 +58,77 @@ export async function getCollectionsMetadata(): Promise<ICollection[]> {
         throw error;
     }
 }
+
+export interface IAddCompaniesRequest {
+    company_ids: number[];
+}
+
+export interface IAddCompaniesResponse {
+    added_count: number;
+}
+
+export async function addCompaniesToCollection(
+    collectionId: string,
+    companyIds: number[]
+): Promise<IAddCompaniesResponse> {
+    try {
+        const response = await axios.post(
+            `${BASE_URL}/collections/${collectionId}/companies`,
+            { company_ids: companyIds }
+        );
+        return response.data;
+    } catch (error) {
+        console.error('Error adding companies to collection:', error);
+        throw error;
+    }
+}
+
+export interface IBulkAddRequest {
+    source_collection_id: string;
+}
+
+export interface IBulkAddResponse {
+    task_id: string;
+    estimated_count: number;
+}
+
+export async function bulkAddCompaniesFromCollection(
+    targetCollectionId: string,
+    sourceCollectionId: string
+): Promise<IBulkAddResponse> {
+    try {
+        const response = await axios.post(
+            `${BASE_URL}/collections/${targetCollectionId}/companies/bulk`,
+            { source_collection_id: sourceCollectionId }
+        );
+        return response.data;
+    } catch (error) {
+        console.error('Error bulk adding companies:', error);
+        throw error;
+    }
+}
+
+export interface ITaskProgress {
+    current: number;
+    total: number;
+}
+
+export interface ITask {
+    id: string;
+    status: 'pending' | 'in_progress' | 'completed' | 'failed';
+    progress: ITaskProgress | null;
+    message: string | null;
+    error: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+export async function getTaskStatus(taskId: string): Promise<ITask> {
+    try {
+        const response = await axios.get(`${BASE_URL}/tasks/${taskId}`);
+        return response.data;
+    } catch (error) {
+        console.error('Error fetching task status:', error);
+        throw error;
+    }
+}
