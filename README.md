@@ -13,4 +13,4 @@ Enjoy :D
 
 # Submission #
 
-Submission information can be found inthe sumbission artifacts folder.
+Submission information can be found in the submission artifacts folder.
