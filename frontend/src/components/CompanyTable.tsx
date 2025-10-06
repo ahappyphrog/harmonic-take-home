@@ -13,10 +13,9 @@ import {
 import {
   Alert,
   Button,
+  Card,
+  CardContent,
   CircularProgress,
-  Dialog,
-  DialogContent,
-  DialogTitle,
   LinearProgress,
   MenuItem,
   Select,
@@ -74,11 +73,17 @@ const CompanyTable = (props: { selectedCollectionId: string }) => {
 
         if (updatedTask.status === "completed") {
           setShowProgressDialog(false);
+
+          // Extract company count from the message if available
+          const companyCount = updatedTask.progress?.total || 0;
+
+          // Show completion notification
           setSnackbar({
             open: true,
-            message: updatedTask.message || "Companies added successfully!",
+            message: `Successfully exported ${companyCount.toLocaleString()} companies!`,
             severity: "success",
           });
+
           // Refresh the table
           getCollectionsById(props.selectedCollectionId, offset, pageSize).then(
             (newResponse) => {
@@ -145,19 +150,26 @@ const CompanyTable = (props: { selectedCollectionId: string }) => {
         targetCollectionId,
         props.selectedCollectionId
       );
+
+      // Get collection names for display
+      const sourceCollection = collections.find((c) => c.id === props.selectedCollectionId);
+      const targetCollection = collections.find((c) => c.id === targetCollectionId);
+
       setCurrentTask({
         id: result.task_id,
         status: "pending",
         progress: { current: 0, total: result.estimated_count },
-        message: "Starting bulk add...",
+        message: `Exporting ${result.estimated_count.toLocaleString()} companies from "${sourceCollection?.collection_name}" to "${targetCollection?.collection_name}"`,
         error: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       });
       setShowProgressDialog(true);
+
+      // Show start notification
       setSnackbar({
         open: true,
-        message: `Adding ${result.estimated_count} companies in background...`,
+        message: `Started exporting ${result.estimated_count.toLocaleString()} companies from "${sourceCollection?.collection_name}" to "${targetCollection?.collection_name}"`,
         severity: "info",
       });
     } catch (error) {
@@ -180,8 +192,47 @@ const CompanyTable = (props: { selectedCollectionId: string }) => {
     : 0;
 
   return (
-    <div style={{ width: "100%" }}>
-      {/* Action Bar */}
+    <>
+      {/* Progress Modal - Bottom Right Corner (outside main container) */}
+      {showProgressDialog && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: 80,
+            right: 20,
+            zIndex: 9999,
+            pointerEvents: "none",
+          }}
+        >
+          <Card
+            sx={{
+              minWidth: 280,
+              maxWidth: 320,
+              boxShadow: 4,
+              backgroundColor: "#1e1e1e",
+              border: "1px solid #333",
+              pointerEvents: "auto",
+            }}
+          >
+            <CardContent sx={{ padding: "12px 16px !important" }}>
+              <div style={{ marginBottom: 8 }}>
+                <p style={{ margin: 0, marginBottom: 6, fontWeight: 500, fontSize: 13 }}>
+                  {currentTask?.message || "Processing..."}
+                </p>
+                <p style={{ margin: 0, fontSize: 11, color: "#999" }}>
+                  {currentTask?.progress
+                    ? `${currentTask.progress.current.toLocaleString()} / ${currentTask.progress.total.toLocaleString()} (${progressPercentage}%)`
+                    : "Initializing..."}
+                </p>
+              </div>
+              <LinearProgress variant="determinate" value={progressPercentage} sx={{ height: 4 }} />
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      <div style={{ width: "100%" }}>
+        {/* Action Bar */}
       <div style={{ marginBottom: 16, display: "flex", gap: 16, alignItems: "center" }}>
         <span style={{ fontSize: 14, color: "#999" }}>Add to collection:</span>
         <Select
@@ -250,27 +301,6 @@ const CompanyTable = (props: { selectedCollectionId: string }) => {
         />
       </div>
 
-      {/* Progress Dialog */}
-      <Dialog open={showProgressDialog} onClose={() => {}}>
-        <DialogTitle>Adding Companies</DialogTitle>
-        <DialogContent style={{ minWidth: 400, paddingTop: 20 }}>
-          <div style={{ marginBottom: 16 }}>
-            <p style={{ margin: 0, marginBottom: 8 }}>
-              {currentTask?.message || "Processing..."}
-            </p>
-            <p style={{ margin: 0, fontSize: 14, color: "#999" }}>
-              {currentTask?.progress
-                ? `${currentTask.progress.current.toLocaleString()} / ${currentTask.progress.total.toLocaleString()} companies`
-                : "Initializing..."}
-            </p>
-          </div>
-          <LinearProgress variant="determinate" value={progressPercentage} />
-          <p style={{ marginTop: 8, fontSize: 12, color: "#999", textAlign: "center" }}>
-            {progressPercentage}%
-          </p>
-        </DialogContent>
-      </Dialog>
-
       {/* Snackbar Notifications */}
       <Snackbar
         open={snackbar.open}
@@ -287,6 +317,7 @@ const CompanyTable = (props: { selectedCollectionId: string }) => {
         </Alert>
       </Snackbar>
     </div>
+    </>
   );
 };
 
