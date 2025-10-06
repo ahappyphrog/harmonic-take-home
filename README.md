@@ -9,3 +9,8 @@ In this repo, you'll find 2 deployable services:
 Please refer to the individual READMEs in the respective repos to get started!
 
 Enjoy :D
+
+
+# Submission #
+
+Submission information can be found inthe sumbission artifacts folder.
