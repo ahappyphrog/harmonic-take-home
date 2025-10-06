@@ -25,6 +25,7 @@ import {
   Select,
   Snackbar,
 } from "@mui/material";
+import { FileDownload } from "@mui/icons-material";
 
 const CompanyTable = (props: { selectedCollectionId: string }) => {
   const [response, setResponse] = useState<ICompany[]>([]);
@@ -208,9 +209,16 @@ const CompanyTable = (props: { selectedCollectionId: string }) => {
           severity: "info",
         });
       } else {
-        // Add only selected companies
+        // Add only selected companies - show loading toast
+        setSnackbar({
+          open: true,
+          message: `Exporting ${selectionCount.toLocaleString()} companies...`,
+          severity: "info",
+        });
+
         const companyIds = selectedRows.map((id) => Number(id));
         const result = await addCompaniesToCollection(targetCollectionId, companyIds);
+
         setSnackbar({
           open: true,
           message: `Successfully exported ${result.added_count} companies`,
@@ -264,7 +272,7 @@ const CompanyTable = (props: { selectedCollectionId: string }) => {
               maxWidth: 320,
               boxShadow: 4,
               backgroundColor: "#1e1e1e",
-              border: "1px solid #333",
+              border: "1px solid #555",
               pointerEvents: "auto",
             }}
           >
@@ -293,7 +301,7 @@ const CompanyTable = (props: { selectedCollectionId: string }) => {
               marginBottom: 16,
               padding: "12px 16px",
               backgroundColor: "#2a2a2a",
-              border: "1px solid #444",
+              border: "1px solid #555",
               borderRadius: 4,
               display: "flex",
               alignItems: "center",
@@ -316,22 +324,23 @@ const CompanyTable = (props: { selectedCollectionId: string }) => {
 
         {/* Action Bar - Export Button */}
         {hasSelection && (
-          <div style={{ marginBottom: 16, display: "flex", gap: 16, alignItems: "center" }}>
-            <Button
-              variant="contained"
-              size="small"
-              onClick={() => setShowExportDialog(true)}
-              disabled={isAdding}
-            >
-              Export ({getSelectionCount().toLocaleString()})
-            </Button>
+          <div style={{ marginBottom: 16, display: "flex", gap: 16, alignItems: "center", justifyContent: "flex-end" }}>
             {selectAllTotal && (
-              <span style={{ fontSize: 13, color: "#999" }}>
+              <span style={{ fontSize: 13, color: "#999", marginRight: "auto" }}>
                 {deselectedIds.size > 0
                   ? `${getSelectionCount().toLocaleString()} of ${total?.toLocaleString()} selected (${deselectedIds.size} excluded)`
                   : `All ${total?.toLocaleString()} items selected`}
               </span>
             )}
+            <Button
+              variant="contained"
+              size="small"
+              onClick={() => setShowExportDialog(true)}
+              disabled={isAdding}
+              startIcon={isAdding ? <CircularProgress size={16} /> : <FileDownload />}
+            >
+              {isAdding ? "Exporting..." : `Export (${getSelectionCount().toLocaleString()})`}
+            </Button>
           </div>
         )}
 
@@ -419,7 +428,10 @@ const CompanyTable = (props: { selectedCollectionId: string }) => {
         <Alert
           onClose={() => setSnackbar({ ...snackbar, open: false })}
           severity={snackbar.severity}
-          sx={{ width: "100%" }}
+          sx={{
+            width: "100%",
+            border: "1px solid #555",
+          }}
         >
           {snackbar.message}
         </Alert>
