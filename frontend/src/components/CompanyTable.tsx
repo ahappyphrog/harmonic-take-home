@@ -36,48 +36,32 @@ const CompanyTable = (props: { selectedCollectionId: string }) => {
   const [collections, setCollections] = useState<ICollection[]>([]);
   const [isAdding, setIsAdding] = useState(false);
 
-  // Initialize task state from localStorage
-  const [currentTask, setCurrentTask] = useState<ITask | null>(() => {
-    const saved = localStorage.getItem("currentTask");
-    return saved ? JSON.parse(saved) : null;
+  // Track multiple concurrent tasks
+  interface TaskMetadata {
+    task: ITask;
+    sourceCollectionId: string;
+    targetCollectionId: string;
+  }
+
+  const [activeTasks, setActiveTasks] = useState<TaskMetadata[]>(() => {
+    const saved = localStorage.getItem("activeTasks");
+    return saved ? JSON.parse(saved) : [];
   });
   const [showExportDialog, setShowExportDialog] = useState(false);
-  const [taskSourceCollectionId, setTaskSourceCollectionId] = useState<string | null>(() => {
-    return localStorage.getItem("taskSourceCollectionId");
-  });
-  const [taskTargetCollectionId, setTaskTargetCollectionId] = useState<string | null>(() => {
-    return localStorage.getItem("taskTargetCollectionId");
-  });
   const [snackbar, setSnackbar] = useState<{
     open: boolean;
     message: string;
     severity: "success" | "error" | "info";
   }>({ open: false, message: "", severity: "success" });
 
-  // Persist task state to localStorage
+  // Persist active tasks to localStorage
   useEffect(() => {
-    if (currentTask) {
-      localStorage.setItem("currentTask", JSON.stringify(currentTask));
+    if (activeTasks.length > 0) {
+      localStorage.setItem("activeTasks", JSON.stringify(activeTasks));
     } else {
-      localStorage.removeItem("currentTask");
+      localStorage.removeItem("activeTasks");
     }
-  }, [currentTask]);
-
-  useEffect(() => {
-    if (taskSourceCollectionId) {
-      localStorage.setItem("taskSourceCollectionId", taskSourceCollectionId);
-    } else {
-      localStorage.removeItem("taskSourceCollectionId");
-    }
-  }, [taskSourceCollectionId]);
-
-  useEffect(() => {
-    if (taskTargetCollectionId) {
-      localStorage.setItem("taskTargetCollectionId", taskTargetCollectionId);
-    } else {
-      localStorage.removeItem("taskTargetCollectionId");
-    }
-  }, [taskTargetCollectionId]);
+  }, [activeTasks]);
 
   // Fetch collections for the dropdown
   useEffect(() => {
@@ -102,56 +86,66 @@ const CompanyTable = (props: { selectedCollectionId: string }) => {
     setDeselectedIds(new Set());
   }, [props.selectedCollectionId]);
 
-  // Poll task status when a task is active
+  // Poll task status for all active tasks
   useEffect(() => {
-    if (!currentTask || currentTask.status === "completed" || currentTask.status === "failed") {
+    if (activeTasks.length === 0) {
       return;
     }
 
     const pollInterval = setInterval(async () => {
-      try {
-        const updatedTask = await getTaskStatus(currentTask.id);
-        setCurrentTask(updatedTask);
+      const updatedTasks: TaskMetadata[] = [];
 
-        if (updatedTask.status === "completed") {
-          // Show completion notification with message from backend (includes duplicate info)
-          setSnackbar({
-            open: true,
-            message: updatedTask.message || "Export completed successfully!",
-            severity: "success",
-          });
+      for (const taskMeta of activeTasks) {
+        try {
+          const updatedTask = await getTaskStatus(taskMeta.task.id);
 
-          // Clear task state
-          setCurrentTask(null);
-          setTaskSourceCollectionId(null);
-          setTaskTargetCollectionId(null);
+          if (updatedTask.status === "completed") {
+            // Show completion notification
+            setSnackbar({
+              open: true,
+              message: updatedTask.message || "Export completed successfully!",
+              severity: "success",
+            });
 
-          // Refresh the table
-          getCollectionsById(props.selectedCollectionId, offset, pageSize).then(
-            (newResponse) => {
-              setResponse(newResponse.companies);
-              setTotal(newResponse.total);
+            // Refresh the table if this task affects the current collection
+            if (
+              taskMeta.sourceCollectionId === props.selectedCollectionId ||
+              taskMeta.targetCollectionId === props.selectedCollectionId
+            ) {
+              getCollectionsById(props.selectedCollectionId, offset, pageSize).then(
+                (newResponse) => {
+                  setResponse(newResponse.companies);
+                  setTotal(newResponse.total);
+                }
+              );
             }
-          );
-        } else if (updatedTask.status === "failed") {
-          setSnackbar({
-            open: true,
-            message: updatedTask.error || "Failed to add companies",
-            severity: "error",
-          });
-
-          // Clear task state
-          setCurrentTask(null);
-          setTaskSourceCollectionId(null);
-          setTaskTargetCollectionId(null);
+            // Don't add completed tasks to updatedTasks
+          } else if (updatedTask.status === "failed") {
+            setSnackbar({
+              open: true,
+              message: updatedTask.error || "Failed to add companies",
+              severity: "error",
+            });
+            // Don't add failed tasks to updatedTasks
+          } else {
+            // Task is still in progress
+            updatedTasks.push({
+              ...taskMeta,
+              task: updatedTask,
+            });
+          }
+        } catch (error) {
+          console.error("Error polling task status:", error);
+          // Keep the task in the list if polling failed
+          updatedTasks.push(taskMeta);
         }
-      } catch (error) {
-        console.error("Error polling task status:", error);
       }
+
+      setActiveTasks(updatedTasks);
     }, 2000); // Poll every 2 seconds
 
     return () => clearInterval(pollInterval);
-  }, [currentTask, props.selectedCollectionId, offset, pageSize]);
+  }, [activeTasks, props.selectedCollectionId, offset, pageSize]);
 
   const refreshTable = () => {
     getCollectionsById(props.selectedCollectionId, offset, pageSize).then(
@@ -213,29 +207,49 @@ const CompanyTable = (props: { selectedCollectionId: string }) => {
     const selectionCount = getSelectionCount();
     if (selectionCount === 0) return;
 
+    // Check for duplicate export (same source and target)
+    const isDuplicate = activeTasks.some(
+      (t) =>
+        t.sourceCollectionId === props.selectedCollectionId &&
+        t.targetCollectionId === targetCollectionId
+    );
+
+    if (isDuplicate) {
+      setSnackbar({
+        open: true,
+        message: "An export from this collection to the selected destination is already in progress",
+        severity: "error",
+      });
+      setShowExportDialog(false);
+      return;
+    }
+
     setIsAdding(true);
     setShowExportDialog(false);
 
     try {
       if (selectAllTotal) {
-        // Use bulk add, but we'll need to implement exception handling on backend
-        // For now, use the bulk add endpoint
+        // Use bulk add endpoint
         const result = await bulkAddCompaniesFromCollection(
           targetCollectionId,
           props.selectedCollectionId
         );
 
-        setCurrentTask({
-          id: result.task_id,
-          status: "pending",
-          progress: { current: 0, total: result.estimated_count },
-          message: "",
-          error: null,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        });
-        setTaskSourceCollectionId(props.selectedCollectionId);
-        setTaskTargetCollectionId(targetCollectionId);
+        const newTask: TaskMetadata = {
+          task: {
+            id: result.task_id,
+            status: "pending",
+            progress: { current: 0, total: result.estimated_count },
+            message: "",
+            error: null,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+          sourceCollectionId: props.selectedCollectionId,
+          targetCollectionId: targetCollectionId,
+        };
+
+        setActiveTasks([...activeTasks, newTask]);
 
         setSnackbar({
           open: true,
@@ -288,91 +302,98 @@ const CompanyTable = (props: { selectedCollectionId: string }) => {
 
   const hasSelection = getSelectionCount() > 0;
 
-  const progressPercentage = currentTask?.progress
-    ? Math.round((currentTask.progress.current / currentTask.progress.total) * 100)
-    : 0;
+  // Get tasks relevant to the current collection
+  const relevantTasks = activeTasks.filter(
+    (t) =>
+      t.sourceCollectionId === props.selectedCollectionId ||
+      t.targetCollectionId === props.selectedCollectionId
+  );
 
-  // Determine if we should show the export/import header on this collection
-  const isExportingFrom = currentTask && taskSourceCollectionId === props.selectedCollectionId;
-  const isImportingTo = currentTask && taskTargetCollectionId === props.selectedCollectionId;
-  const showTaskHeader = isExportingFrom || isImportingTo;
-
-  const getTaskHeaderMessage = () => {
-    if (isExportingFrom) {
-      const targetCollection = collections.find((c) => c.id === taskTargetCollectionId);
-      return `Exporting ${currentTask.progress?.total.toLocaleString() || 0} companies to "${targetCollection?.collection_name}"`;
-    } else if (isImportingTo) {
-      const sourceCollection = collections.find((c) => c.id === taskSourceCollectionId);
-      return `Importing ${currentTask.progress?.total.toLocaleString() || 0} companies from "${sourceCollection?.collection_name}"`;
+  const getTaskMessage = (taskMeta: TaskMetadata) => {
+    if (taskMeta.sourceCollectionId === props.selectedCollectionId) {
+      const targetCollection = collections.find((c) => c.id === taskMeta.targetCollectionId);
+      return `Exporting ${taskMeta.task.progress?.total.toLocaleString() || 0} companies to "${targetCollection?.collection_name || 'Unknown'}"`;
+    } else {
+      const sourceCollection = collections.find((c) => c.id === taskMeta.sourceCollectionId);
+      return `Importing ${taskMeta.task.progress?.total.toLocaleString() || 0} companies from "${sourceCollection?.collection_name || 'Unknown'}"`;
     }
-    return "";
+  };
+
+  const getProgressPercentage = (task: ITask) => {
+    return task.progress
+      ? Math.round((task.progress.current / task.progress.total) * 100)
+      : 0;
   };
 
   return (
     <>
       <div style={{ width: "100%" }}>
-        {/* Export/Import Status - Compact Circular Progress */}
-        {showTaskHeader && (
-          <div
-            style={{
-              marginBottom: 12,
-              display: "flex",
-              alignItems: "center",
-              gap: 12,
-              padding: "8px 12px",
-              backgroundColor: "#2a2a2a",
-              border: "1px solid #555",
-              borderRadius: 4,
-            }}
-          >
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{ margin: 0, fontWeight: 500, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                {getTaskHeaderMessage()}
-              </p>
-              <p style={{ margin: 0, fontSize: 11, color: "#999" }}>
-                {currentTask?.progress
-                  ? `${currentTask.progress.current.toLocaleString()} / ${currentTask.progress.total.toLocaleString()}`
-                  : "Initializing..."}
-              </p>
-            </div>
-            <div style={{ position: "relative", display: "inline-flex" }}>
-              {/* Background circle to show track */}
-              <CircularProgress
-                variant="determinate"
-                value={100}
-                size={32}
-                thickness={4}
-                sx={{
-                  color: "#444",
-                  position: "absolute",
-                }}
-              />
-              {/* Actual progress */}
-              <CircularProgress
-                variant="determinate"
-                value={progressPercentage}
-                size={32}
-                thickness={4}
-              />
-              <div
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  bottom: 0,
-                  right: 0,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <span style={{ fontSize: 10, fontWeight: 600 }}>
-                  {progressPercentage}%
-                </span>
+        {/* Export/Import Status - Show all relevant tasks */}
+        {relevantTasks.map((taskMeta) => {
+          const progressPercentage = getProgressPercentage(taskMeta.task);
+          return (
+            <div
+              key={taskMeta.task.id}
+              style={{
+                marginBottom: 12,
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                padding: "8px 12px",
+                backgroundColor: "#2a2a2a",
+                border: "1px solid #555",
+                borderRadius: 4,
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ margin: 0, fontWeight: 500, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {getTaskMessage(taskMeta)}
+                </p>
+                <p style={{ margin: 0, fontSize: 11, color: "#999" }}>
+                  {taskMeta.task.progress
+                    ? `${taskMeta.task.progress.current.toLocaleString()} / ${taskMeta.task.progress.total.toLocaleString()}`
+                    : "Initializing..."}
+                </p>
+              </div>
+              <div style={{ position: "relative", display: "inline-flex" }}>
+                {/* Background circle to show track */}
+                <CircularProgress
+                  variant="determinate"
+                  value={100}
+                  size={32}
+                  thickness={4}
+                  sx={{
+                    color: "#444",
+                    position: "absolute",
+                  }}
+                />
+                {/* Actual progress */}
+                <CircularProgress
+                  variant="determinate"
+                  value={progressPercentage}
+                  size={32}
+                  thickness={4}
+                />
+                <div
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    bottom: 0,
+                    right: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <span style={{ fontSize: 10, fontWeight: 600 }}>
+                    {progressPercentage}%
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          );
+        })}
         {/* Select All Banner */}
         {showSelectAllBanner && (
           <div
