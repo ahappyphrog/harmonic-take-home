@@ -1,7 +1,7 @@
 # Design Decisions - Bulk Company Export Feature
 
 ## Demo Video
-[Loom Video Demo](https://www.loom.com/share/b722533f960141c082b91790406ff72f?sid=0fae4133-c7c6-429f-aafd-8800121cdbb0)
+[Loom Video Demo](https://www.loom.com/share/602ecd5e59f444d6baae43707e92e858?sid=10639d6a-a34c-4e27-97d9-4b5de30e8b3f)
 
 ## Approach
 
