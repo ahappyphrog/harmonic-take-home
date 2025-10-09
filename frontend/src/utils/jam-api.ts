@@ -65,6 +65,7 @@ export interface IAddCompaniesRequest {
 
 export interface IAddCompaniesResponse {
     added_count: number;
+    duplicates_count: number;
 }
 
 export async function addCompaniesToCollection(

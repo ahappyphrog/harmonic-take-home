@@ -81,6 +81,7 @@ class AddCompaniesRequest(BaseModel):
 class AddCompaniesResponse(BaseModel):
     """Response for adding individual companies."""
     added_count: int
+    duplicates_count: int
 
 
 @router.post("/{collection_id}/companies", response_model=AddCompaniesResponse)
@@ -120,7 +121,8 @@ def add_companies_to_collection(
             db.rollback()
             continue
 
-    return AddCompaniesResponse(added_count=added_count)
+    duplicates_count = len(request.company_ids) - added_count
+    return AddCompaniesResponse(added_count=added_count, duplicates_count=duplicates_count)
 
 
 class BulkAddRequest(BaseModel):

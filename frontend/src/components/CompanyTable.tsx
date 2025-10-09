@@ -220,9 +220,14 @@ const CompanyTable = (props: { selectedCollectionId: string }) => {
         const companyIds = selectedRows.map((id) => Number(id));
         const result = await addCompaniesToCollection(targetCollectionId, companyIds);
 
+        // Format message with duplicate info
+        const successMessage = result.duplicates_count > 0
+          ? `Successfully exported ${result.added_count} ${result.added_count === 1 ? 'company' : 'companies'} (${result.duplicates_count} ${result.duplicates_count === 1 ? 'duplicate' : 'duplicates'})`
+          : `Successfully exported ${result.added_count} ${result.added_count === 1 ? 'company' : 'companies'}`;
+
         setSnackbar({
           open: true,
-          message: `Successfully exported ${result.added_count} companies`,
+          message: successMessage,
           severity: "success",
         });
       }
@@ -434,6 +439,8 @@ const CompanyTable = (props: { selectedCollectionId: string }) => {
           sx={{
             width: "100%",
             border: "1px solid #555",
+            whiteSpace: "normal",
+            wordBreak: "break-word",
           }}
         >
           {snackbar.message}
