@@ -81,13 +81,10 @@ const CompanyTable = (props: { selectedCollectionId: string }) => {
         setCurrentTask(updatedTask);
 
         if (updatedTask.status === "completed") {
-          // Extract company count from the message if available
-          const companyCount = updatedTask.progress?.total || 0;
-
-          // Show completion notification
+          // Show completion notification with message from backend (includes duplicate info)
           setSnackbar({
             open: true,
-            message: `Successfully exported ${companyCount.toLocaleString()} companies!`,
+            message: updatedTask.message || "Export completed successfully!",
             severity: "success",
           });
 

@@ -235,11 +235,12 @@ def _bulk_add_companies_background(
             )
 
         # Mark task as completed
+        duplicates = len(company_ids) - total_added
         task_store.update_task(
             task_id,
             status=TaskStatus.COMPLETED,
             current=len(company_ids),
-            message=f"Successfully added {total_added} companies",
+            message=f"Successfully added {total_added} companies ({duplicates} duplicates skipped)",
         )
 
     except Exception as e:
