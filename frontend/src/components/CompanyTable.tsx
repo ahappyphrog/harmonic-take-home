@@ -13,8 +13,6 @@ import {
 import {
   Alert,
   Button,
-  Card,
-  CardContent,
   CircularProgress,
   Dialog,
   DialogActions,
@@ -39,8 +37,9 @@ const CompanyTable = (props: { selectedCollectionId: string }) => {
   const [collections, setCollections] = useState<ICollection[]>([]);
   const [isAdding, setIsAdding] = useState(false);
   const [currentTask, setCurrentTask] = useState<ITask | null>(null);
-  const [showProgressDialog, setShowProgressDialog] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
+  const [taskSourceCollectionId, setTaskSourceCollectionId] = useState<string | null>(null);
+  const [taskTargetCollectionId, setTaskTargetCollectionId] = useState<string | null>(null);
   const [snackbar, setSnackbar] = useState<{
     open: boolean;
     message: string;
@@ -82,8 +81,6 @@ const CompanyTable = (props: { selectedCollectionId: string }) => {
         setCurrentTask(updatedTask);
 
         if (updatedTask.status === "completed") {
-          setShowProgressDialog(false);
-
           // Extract company count from the message if available
           const companyCount = updatedTask.progress?.total || 0;
 
@@ -94,6 +91,11 @@ const CompanyTable = (props: { selectedCollectionId: string }) => {
             severity: "success",
           });
 
+          // Clear task state
+          setCurrentTask(null);
+          setTaskSourceCollectionId(null);
+          setTaskTargetCollectionId(null);
+
           // Refresh the table
           getCollectionsById(props.selectedCollectionId, offset, pageSize).then(
             (newResponse) => {
@@ -102,12 +104,16 @@ const CompanyTable = (props: { selectedCollectionId: string }) => {
             }
           );
         } else if (updatedTask.status === "failed") {
-          setShowProgressDialog(false);
           setSnackbar({
             open: true,
             message: updatedTask.error || "Failed to add companies",
             severity: "error",
           });
+
+          // Clear task state
+          setCurrentTask(null);
+          setTaskSourceCollectionId(null);
+          setTaskTargetCollectionId(null);
         }
       } catch (error) {
         console.error("Error polling task status:", error);
@@ -189,19 +195,17 @@ const CompanyTable = (props: { selectedCollectionId: string }) => {
           props.selectedCollectionId
         );
 
-        const sourceCollection = collections.find((c) => c.id === props.selectedCollectionId);
-        const targetCollection = collections.find((c) => c.id === targetCollectionId);
-
         setCurrentTask({
           id: result.task_id,
           status: "pending",
           progress: { current: 0, total: result.estimated_count },
-          message: `Exporting ${selectionCount.toLocaleString()} companies from "${sourceCollection?.collection_name}" to "${targetCollection?.collection_name}"`,
+          message: "",
           error: null,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         });
-        setShowProgressDialog(true);
+        setTaskSourceCollectionId(props.selectedCollectionId);
+        setTaskTargetCollectionId(targetCollectionId);
 
         setSnackbar({
           open: true,
@@ -253,47 +257,49 @@ const CompanyTable = (props: { selectedCollectionId: string }) => {
     ? Math.round((currentTask.progress.current / currentTask.progress.total) * 100)
     : 0;
 
+  // Determine if we should show the export/import header on this collection
+  const isExportingFrom = currentTask && taskSourceCollectionId === props.selectedCollectionId;
+  const isImportingTo = currentTask && taskTargetCollectionId === props.selectedCollectionId;
+  const showTaskHeader = isExportingFrom || isImportingTo;
+
+  const getTaskHeaderMessage = () => {
+    if (isExportingFrom) {
+      const targetCollection = collections.find((c) => c.id === taskTargetCollectionId);
+      return `Exporting ${currentTask.progress?.total.toLocaleString() || 0} companies to "${targetCollection?.collection_name}"`;
+    } else if (isImportingTo) {
+      const sourceCollection = collections.find((c) => c.id === taskSourceCollectionId);
+      return `Importing ${currentTask.progress?.total.toLocaleString() || 0} companies from "${sourceCollection?.collection_name}"`;
+    }
+    return "";
+  };
+
   return (
     <>
-      {/* Progress Modal - Bottom Right Corner (outside main container) */}
-      {showProgressDialog && (
-        <div
-          style={{
-            position: "fixed",
-            bottom: 80,
-            right: 20,
-            zIndex: 9999,
-            pointerEvents: "none",
-          }}
-        >
-          <Card
-            sx={{
-              minWidth: 280,
-              maxWidth: 320,
-              boxShadow: 4,
-              backgroundColor: "#1e1e1e",
+      <div style={{ width: "100%" }}>
+        {/* Export/Import Status Header */}
+        {showTaskHeader && (
+          <div
+            style={{
+              marginBottom: 16,
+              padding: "12px 16px",
+              backgroundColor: "#2a2a2a",
               border: "1px solid #555",
-              pointerEvents: "auto",
+              borderRadius: 4,
             }}
           >
-            <CardContent sx={{ padding: "12px 16px !important" }}>
-              <div style={{ marginBottom: 8 }}>
-                <p style={{ margin: 0, marginBottom: 6, fontWeight: 500, fontSize: 13 }}>
-                  {currentTask?.message || "Processing..."}
-                </p>
-                <p style={{ margin: 0, fontSize: 11, color: "#999" }}>
-                  {currentTask?.progress
-                    ? `${currentTask.progress.current.toLocaleString()} / ${currentTask.progress.total.toLocaleString()} (${progressPercentage}%)`
-                    : "Initializing..."}
-                </p>
-              </div>
-              <LinearProgress variant="determinate" value={progressPercentage} sx={{ height: 4 }} />
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      <div style={{ width: "100%" }}>
+            <div style={{ marginBottom: 8 }}>
+              <p style={{ margin: 0, marginBottom: 6, fontWeight: 500, fontSize: 14 }}>
+                {getTaskHeaderMessage()}
+              </p>
+              <p style={{ margin: 0, fontSize: 12, color: "#999" }}>
+                {currentTask?.progress
+                  ? `${currentTask.progress.current.toLocaleString()} / ${currentTask.progress.total.toLocaleString()} (${progressPercentage}%)`
+                  : "Initializing..."}
+              </p>
+            </div>
+            <LinearProgress variant="determinate" value={progressPercentage} sx={{ height: 6 }} />
+          </div>
+        )}
         {/* Select All Banner */}
         {showSelectAllBanner && (
           <div
