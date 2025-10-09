@@ -18,7 +18,6 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  LinearProgress,
   MenuItem,
   Select,
   Snackbar,
@@ -36,15 +35,49 @@ const CompanyTable = (props: { selectedCollectionId: string }) => {
   const [targetCollectionId, setTargetCollectionId] = useState<string>("");
   const [collections, setCollections] = useState<ICollection[]>([]);
   const [isAdding, setIsAdding] = useState(false);
-  const [currentTask, setCurrentTask] = useState<ITask | null>(null);
+
+  // Initialize task state from localStorage
+  const [currentTask, setCurrentTask] = useState<ITask | null>(() => {
+    const saved = localStorage.getItem("currentTask");
+    return saved ? JSON.parse(saved) : null;
+  });
   const [showExportDialog, setShowExportDialog] = useState(false);
-  const [taskSourceCollectionId, setTaskSourceCollectionId] = useState<string | null>(null);
-  const [taskTargetCollectionId, setTaskTargetCollectionId] = useState<string | null>(null);
+  const [taskSourceCollectionId, setTaskSourceCollectionId] = useState<string | null>(() => {
+    return localStorage.getItem("taskSourceCollectionId");
+  });
+  const [taskTargetCollectionId, setTaskTargetCollectionId] = useState<string | null>(() => {
+    return localStorage.getItem("taskTargetCollectionId");
+  });
   const [snackbar, setSnackbar] = useState<{
     open: boolean;
     message: string;
     severity: "success" | "error" | "info";
   }>({ open: false, message: "", severity: "success" });
+
+  // Persist task state to localStorage
+  useEffect(() => {
+    if (currentTask) {
+      localStorage.setItem("currentTask", JSON.stringify(currentTask));
+    } else {
+      localStorage.removeItem("currentTask");
+    }
+  }, [currentTask]);
+
+  useEffect(() => {
+    if (taskSourceCollectionId) {
+      localStorage.setItem("taskSourceCollectionId", taskSourceCollectionId);
+    } else {
+      localStorage.removeItem("taskSourceCollectionId");
+    }
+  }, [taskSourceCollectionId]);
+
+  useEffect(() => {
+    if (taskTargetCollectionId) {
+      localStorage.setItem("taskTargetCollectionId", taskTargetCollectionId);
+    } else {
+      localStorage.removeItem("taskTargetCollectionId");
+    }
+  }, [taskTargetCollectionId]);
 
   // Fetch collections for the dropdown
   useEffect(() => {
@@ -278,28 +311,66 @@ const CompanyTable = (props: { selectedCollectionId: string }) => {
   return (
     <>
       <div style={{ width: "100%" }}>
-        {/* Export/Import Status Header */}
+        {/* Export/Import Status - Compact Circular Progress */}
         {showTaskHeader && (
           <div
             style={{
-              marginBottom: 16,
-              padding: "12px 16px",
+              marginBottom: 12,
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              padding: "8px 12px",
               backgroundColor: "#2a2a2a",
               border: "1px solid #555",
               borderRadius: 4,
             }}
           >
-            <div style={{ marginBottom: 8 }}>
-              <p style={{ margin: 0, marginBottom: 6, fontWeight: 500, fontSize: 14 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ margin: 0, fontWeight: 500, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                 {getTaskHeaderMessage()}
               </p>
-              <p style={{ margin: 0, fontSize: 12, color: "#999" }}>
+              <p style={{ margin: 0, fontSize: 11, color: "#999" }}>
                 {currentTask?.progress
-                  ? `${currentTask.progress.current.toLocaleString()} / ${currentTask.progress.total.toLocaleString()} (${progressPercentage}%)`
+                  ? `${currentTask.progress.current.toLocaleString()} / ${currentTask.progress.total.toLocaleString()}`
                   : "Initializing..."}
               </p>
             </div>
-            <LinearProgress variant="determinate" value={progressPercentage} sx={{ height: 6 }} />
+            <div style={{ position: "relative", display: "inline-flex" }}>
+              {/* Background circle to show track */}
+              <CircularProgress
+                variant="determinate"
+                value={100}
+                size={32}
+                thickness={4}
+                sx={{
+                  color: "#444",
+                  position: "absolute",
+                }}
+              />
+              {/* Actual progress */}
+              <CircularProgress
+                variant="determinate"
+                value={progressPercentage}
+                size={32}
+                thickness={4}
+              />
+              <div
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  bottom: 0,
+                  right: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <span style={{ fontSize: 10, fontWeight: 600 }}>
+                  {progressPercentage}%
+                </span>
+              </div>
+            </div>
           </div>
         )}
         {/* Select All Banner */}
